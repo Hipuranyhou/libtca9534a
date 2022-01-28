@@ -1,0 +1,9 @@
+A little library for TCA9534A control from userspace.
+
+Run:
+    ./bootstrap.sh
+    ./configure
+    make
+
+Before commit please run
+    ./clean.sh
