@@ -1,3 +1,10 @@
+/**
+ * Copyright 2022 Jakub Šatoplet
+ *
+ * Use of this source code is governed by an MIT-style license that can be found
+ * in the LICENSE file.
+ */
+
 #ifndef LIBTCA9534A_TCA9534A_H_ijtorewitn
 #define LIBTCA9534A_TCA9534A_H_ijtorewitn
 
