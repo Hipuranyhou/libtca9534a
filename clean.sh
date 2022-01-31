@@ -5,6 +5,7 @@ find .                        \
     ! -name .                 \
     ! -name ..                \
     ! -name .git              \
+    ! -name .github           \
     ! -name ds                \
     ! -name include           \
     ! -name src               \
