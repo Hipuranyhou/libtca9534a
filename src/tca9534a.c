@@ -49,8 +49,8 @@ static int tca9534a_i2c_reg_get(const struct tca9534a *const dev,
 	msg[0].len = sizeof(reg);
 	msg[0].buf = (__u8 *)&reg;
 
-	msg[1].addr = dev->addr;
 	msg[1].flags = I2C_M_RD;
+	msg[1].addr = dev->addr;
 	msg[1].len = sizeof(*val);
 	msg[1].buf = val;
 
@@ -146,6 +146,22 @@ int tca9534a_valid(const struct tca9534a *const dev)
 	}
 
 	return dev->fd >= 0 && dev->addr >= 0x38 && dev->addr <= 0x3f;
+}
+
+int tca9534a_reset(const struct tca9534a *const dev)
+{
+	if (!tca9534a_valid(dev)) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	/* Return on first fail. */
+	if (tca9534a_reg_reset(dev, TCA9534A_REG_OUT) ||
+	    tca9534a_reg_reset(dev, TCA9534A_REG_POL) ||
+	    tca9534a_reg_reset(dev, TCA9534A_REG_CONF))
+		return -1;
+
+	return 0;
 }
 
 int tca9534a_reg_get(const struct tca9534a *const dev,

@@ -77,6 +77,15 @@ enum tca9534a_port_dir {
 int tca9534a_valid(const struct tca9534a *const dev);
 
 /**
+ * Resets registers to datasheet defaults.
+ * @param[in] dev Pointer to filled in struct tca9534a.
+ * @return -1 on error (and sets errno), 0 on success.
+ * @exception EINVAL  Invalid argument.
+ * @exception <ioctl> Any errno listed by ioctl().
+ */
+int tca9534a_reset(const struct tca9534a *const dev);
+
+/**
  * Gets register state into val.
  * @param[in]  dev Pointer to filled in struct tca9534a.
  * @param[in]  reg Register to read.
