@@ -223,7 +223,7 @@ int tca9534a_port_read(const struct tca9534a *const dev,
 		return -1;
 	}
 
-	return tca9534a_reg_port_get(dev, TCA9534A_REG_IN, port, lvl);
+	return tca9534a_reg_port_get(dev, TCA9534A_REG_IN, port, (int *)lvl);
 }
 
 int tca9534a_port_write(const struct tca9534a *const dev,
