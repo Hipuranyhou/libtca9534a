@@ -24,8 +24,8 @@ static const __u8 tca9534a_reg_def[__TCA9534A_REG_CNT] = {
 
 /**
  * Checks if val is in [0, end). Works only for continuous enums starting at 0.
- * @param[in] val 
- * @param[in] end 
+ * @param[in] val Enum value to be checked.
+ * @param[in] end Special enum end value or enum max + 1.
  * @return 0 not valid, 1 valid.
  */
 static inline int tca9534a_enum_valid(const int val, const int end)
