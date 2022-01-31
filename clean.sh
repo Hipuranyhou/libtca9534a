@@ -4,6 +4,7 @@ find .                        \
     -maxdepth 1               \
     ! -name .                 \
     ! -name ..                \
+    ! -name .git              \
     ! -name ds                \
     ! -name include           \
     ! -name src               \
@@ -17,22 +18,22 @@ find .                        \
     ! -name README            \
     -exec rm -rf "{}" +
 
-if [ -d src ]; then 
-    cd src
-    find .                 \
-        ! -name .          \
-        ! -name ..         \
-        ! -name '*.c'      \
-        -exec rm -rf "{}" +
-    cd ..
-fi
-
 if [ -d include ]; then 
     cd include
     find .            \
         ! -name .     \
         ! -name ..    \
         ! -name '*.h' \
+        -exec rm -rf "{}" +
+    cd ..
+fi
+
+if [ -d src ]; then 
+    cd src
+    find .                 \
+        ! -name .          \
+        ! -name ..         \
+        ! -name '*.c'      \
         -exec rm -rf "{}" +
     cd ..
 fi

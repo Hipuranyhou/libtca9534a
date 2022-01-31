@@ -1,4 +1,4 @@
-A little library for TCA9534A control from userspace.
+A little library for controlling the TCA9534A from the GNU/Linux userspace.
 
 Run:
     ./bootstrap.sh

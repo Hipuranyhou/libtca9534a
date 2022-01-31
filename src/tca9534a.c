@@ -1,117 +1,249 @@
 #include "tca9534a.h"
 
-#include "i2c.h"
-#include "util.h"
+#include <errno.h>
+#include <linux/i2c-dev.h>
+#include <linux/i2c.h>
+#include <sys/ioctl.h>
 
-/* TCA9534A_REG_IN does not have default */
+/**
+ * Default values for TCA9534A registers from datasheet.
+ */
 static const __u8 tca9534a_reg_def[__TCA9534A_REG_CNT] = {
-	[TCA9534A_REG_IN] = 0x00,
+	[TCA9534A_REG_IN] = 0x00, /**< Does not have a default. */
 	[TCA9534A_REG_OUT] = 0xff,
 	[TCA9534A_REG_POL] = 0x00,
 	[TCA9534A_REG_CONF] = 0xff
 };
 
-int tca9534a_reg_get(const int fd, const enum tca9534a_reg reg, __u8 *const val)
+/**
+ * Checks if val is in [0, end). Works only for continuous enums starting at 0.
+ * @param[in] val 
+ * @param[in] end 
+ * @return 0 not valid, 1 valid.
+ */
+static inline int tca9534a_enum_valid(const int val, const int end)
 {
-	/* sanity check */
-	if (fd < 0 || !ENUM_OK(reg, __TCA9534A_REG_CNT) || !val)
-		return -1;
-
-	return i2c_get_reg(fd, TCA9534A_ADDR, reg, val);
+	return val >= 0 && val < end;
 }
 
-int tca9534a_reg_set(const int fd, const enum tca9534a_reg reg, const __u8 val)
+/**
+ * Gets one byte register state into val.
+ * @param[in]  dev Pointer to filled in struct tca9534a.
+ * @param[in]  reg Register to read address.
+ * @param[out] val Pointer to register state destination.
+ * @return -1 on error (and sets errno), 0 on success.
+ * @exception <ioctl> Any errno listed by ioctl().
+ */
+static int tca9534a_i2c_reg_get(const struct tca9534a *const dev,
+				const __u8 reg, __u8 *const val)
 {
-	/* sanity check */
-	if (fd < 0 || !ENUM_OK(reg, __TCA9534A_REG_CNT) ||
-	    reg == TCA9534A_REG_IN)
-		return -1;
+	struct i2c_rdwr_ioctl_data pkt = { 0 };
+	struct i2c_msg msg[2] = { 0 };
 
-	return i2c_set_reg(fd, TCA9534A_ADDR, reg, val);
+	/* only public functions check sanity */
+
+	pkt.msgs = msg;
+	pkt.nmsgs = 2;
+
+	msg[0].addr = dev->addr;
+	msg[0].len = sizeof(reg);
+	msg[0].buf = (__u8 *)&reg;
+
+	msg[1].addr = dev->addr;
+	msg[1].flags = I2C_M_RD;
+	msg[1].len = sizeof(*val);
+	msg[1].buf = val;
+
+	return ioctl(dev->fd, I2C_RDWR, &pkt) < 0 ? -1 : 0;
 }
 
-int tca9534a_reg_reset(const int fd, const enum tca9534a_reg reg)
+/**
+ * Sets one byte register state to val.
+ * @param[in] dev Pointer to filled in struct tca9534a.
+ * @param[in] reg Register to read address.
+ * @param[in] val New state of register.
+ * @return -1 on error (and sets errno), 0 on success.
+ * @exception <ioctl> Any errno listed by ioctl().
+ */
+static int tca9534a_i2c_reg_set(const struct tca9534a *const dev,
+				const __u8 reg, const __u8 val)
 {
-	/* sanity check */
-	if (fd < 0 || !ENUM_OK(reg, __TCA9534A_REG_CNT) ||
-	    reg == TCA9534A_REG_IN)
-		return -1;
+	__u8 data[2] = { 0 };
+	struct i2c_rdwr_ioctl_data pkt = { 0 };
+	struct i2c_msg msg[1] = { 0 };
 
-	return tca9534a_reg_set(fd, reg, tca9534a_reg_def[reg]);
+	/* only public functions check sanity */
+
+	pkt.msgs = msg;
+	pkt.nmsgs = 1;
+
+	data[0] = reg;
+	data[1] = val;
+
+	msg[0].addr = dev->addr;
+	msg[0].len = sizeof(data);
+	msg[0].buf = data;
+
+	return ioctl(dev->fd, I2C_RDWR, &pkt) < 0 ? -1 : 0;
 }
 
-static int tca9534a_reg_port_set(const int fd, const int reg, const int port,
-				 const int val)
+/**
+ * Gets port state bit from given register into val.
+ * @param[in]  dev  Pointer to filled in struct tca9534a.
+ * @param[in]  reg  Register to read.
+ * @param[in]  port Port to check.
+ * @param[out] val  Pointer to register state destination.
+ * @return -1 on error (and sets errno), 0 on success.
+ * @exception <ioctl> Any errno listed by ioctl().
+ */
+static int tca9534a_reg_port_get(const struct tca9534a *const dev,
+				 const int reg, const int port, int *const val)
 {
 	__u8 state;
 
 	/* only public functions check sanity */
 
 	/* load old state */
-	if (tca9534a_reg_get(fd, reg, &state))
+	if (tca9534a_reg_get(dev, reg, &state))
 		return -1;
 
-	BIT_TO(state, port, val);
-
-	/* save new state */
-	return tca9534a_reg_set(fd, reg, state);
-}
-
-static int tca9534a_reg_port_get(const int fd, const int reg, const int port,
-				 int *const val)
-{
-	__u8 state;
-
-	/* only public functions check sanity */
-
-	/* load old state */
-	if (tca9534a_reg_get(fd, reg, &state))
-		return -1;
-
-	*val = BIT(state, port);
+	*val = (state >> port) & 1ULL;
 
 	return 0;
 }
 
-int tca9534a_port_read(const int fd, const enum tca9534a_port port,
+/**
+ * Gets port state bit from given register into val.
+ * @param[in] dev  Pointer to filled in struct tca9534a.
+ * @param[in] reg  Register to set.
+ * @param[in] port Port to set.
+ * @param[in] val  New state of port in register.
+ * @return -1 on error (and sets errno), 0 on success.
+ * @exception <ioctl> Any errno listed by ioctl().
+ */
+static int tca9534a_reg_port_set(const struct tca9534a *const dev,
+				 const int reg, const int port, const int val)
+{
+	__u8 state;
+
+	/* only public functions check sanity */
+
+	/* load old state */
+	if (tca9534a_reg_get(dev, reg, &state))
+		return -1;
+
+	state ^= ((-(unsigned)val) ^ state) & (1ULL << port);
+
+	/* save new state */
+	return tca9534a_reg_set(dev, reg, state);
+}
+
+int tca9534a_valid(const struct tca9534a *const dev)
+{
+	if (!dev) {
+		errno = EINVAL;
+		return 0;
+	}
+
+	return dev->fd >= 0 && dev->addr >= 0x38 && dev->addr <= 0x3f;
+}
+
+int tca9534a_reg_get(const struct tca9534a *const dev,
+		     const enum tca9534a_reg reg, __u8 *const val)
+{
+	/* sanity check */
+	if (!tca9534a_valid(dev) ||
+	    !tca9534a_enum_valid(reg, __TCA9534A_REG_CNT) || !val) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	return tca9534a_i2c_reg_get(dev, reg, val);
+}
+
+int tca9534a_reg_set(const struct tca9534a *const dev,
+		     const enum tca9534a_reg reg, const __u8 val)
+{
+	/* sanity check */
+	if (!tca9534a_valid(dev) ||
+	    !tca9534a_enum_valid(reg, __TCA9534A_REG_CNT) ||
+	    reg == TCA9534A_REG_IN) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	return tca9534a_i2c_reg_set(dev, reg, val);
+}
+
+int tca9534a_reg_reset(const struct tca9534a *const dev,
+		       const enum tca9534a_reg reg)
+{
+	/* sanity check */
+	if (!tca9534a_valid(dev) ||
+	    !tca9534a_enum_valid(reg, __TCA9534A_REG_CNT) ||
+	    reg == TCA9534A_REG_IN) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	return tca9534a_reg_set(dev, reg, tca9534a_reg_def[reg]);
+}
+
+int tca9534a_port_read(const struct tca9534a *const dev,
+		       const enum tca9534a_port port,
 		       enum tca9534a_port_lvl *const lvl)
 {
 	/* sanity check */
-	if (fd < 0 || !ENUM_OK(port, __TCA9534A_PORT_CNT) || !lvl)
+	if (!tca9534a_valid(dev) ||
+	    !tca9534a_enum_valid(port, __TCA9534A_PORT_CNT) || !lvl) {
+		errno = EINVAL;
 		return -1;
+	}
 
-	return tca9534a_reg_port_get(fd, TCA9534A_REG_IN, port, lvl);
+	return tca9534a_reg_port_get(dev, TCA9534A_REG_IN, port, lvl);
 }
 
-int tca9534a_port_write(const int fd, const enum tca9534a_port port,
+int tca9534a_port_write(const struct tca9534a *const dev,
+			const enum tca9534a_port port,
 			const enum tca9534a_port_lvl lvl)
 {
 	/* sanity check */
-	if (fd < 0 || !ENUM_OK(port, __TCA9534A_PORT_CNT) ||
-	    !ENUM_OK(lvl, __TCA9534A_PORT_LVL_CNT))
+	if (!tca9534a_valid(dev) ||
+	    !tca9534a_enum_valid(port, __TCA9534A_PORT_CNT) ||
+	    !tca9534a_enum_valid(lvl, __TCA9534A_PORT_LVL_CNT)) {
+		errno = EINVAL;
 		return -1;
+	}
 
-	return tca9534a_reg_port_set(fd, TCA9534A_REG_CONF, port, lvl);
+	return tca9534a_reg_port_set(dev, TCA9534A_REG_OUT, port, lvl);
 }
 
-int tca9534a_port_pol(const int fd, const enum tca9534a_port port,
+int tca9534a_port_pol(const struct tca9534a *const dev,
+		      const enum tca9534a_port port,
 		      const enum tca9534a_port_pol pol)
 {
 	/* sanity check */
-	if (fd < 0 || !ENUM_OK(port, __TCA9534A_PORT_CNT) ||
-	    !ENUM_OK(pol, __TCA9534A_PORT_POL_CNT))
+	if (!tca9534a_valid(dev) ||
+	    !tca9534a_enum_valid(port, __TCA9534A_PORT_CNT) ||
+	    !tca9534a_enum_valid(pol, __TCA9534A_PORT_POL_CNT)) {
+		errno = EINVAL;
 		return -1;
+	}
 
-	return tca9534a_reg_port_set(fd, TCA9534A_REG_CONF, port, pol);
+	return tca9534a_reg_port_set(dev, TCA9534A_REG_POL, port, pol);
 }
 
-int tca9534a_port_dir(const int fd, const enum tca9534a_port port,
+int tca9534a_port_dir(const struct tca9534a *const dev,
+		      const enum tca9534a_port port,
 		      const enum tca9534a_port_dir dir)
 {
 	/* sanity check */
-	if (fd < 0 || !ENUM_OK(port, __TCA9534A_PORT_CNT) ||
-	    !ENUM_OK(dir, __TCA9534A_PORT_DIR_CNT))
+	if (!tca9534a_valid(dev) ||
+	    !tca9534a_enum_valid(port, __TCA9534A_PORT_CNT) ||
+	    !tca9534a_enum_valid(dir, __TCA9534A_PORT_DIR_CNT)) {
+		errno = EINVAL;
 		return -1;
+	}
 
-	return tca9534a_reg_port_set(fd, TCA9534A_REG_CONF, port, dir);
+	return tca9534a_reg_port_set(dev, TCA9534A_REG_CONF, port, dir);
 }
