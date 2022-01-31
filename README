@@ -5,5 +5,5 @@ Run:
     ./configure
     make
 
-Before commit please run
+Please use clang-format and before commit run:
     ./clean.sh
